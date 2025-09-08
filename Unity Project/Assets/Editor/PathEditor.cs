@@ -66,11 +66,13 @@ public class PathEditor : Editor {
             {
                 Undo.RecordObject(creator, "Split segment");
                 Path.SplitSegment(mousePos, selectedSegmentIndex);
+                guiEvent.Use(); // Consume the event
             }
             else if (!Path.IsClosed)
             {
                 Undo.RecordObject(creator, "Add segment");
                 Path.AddSegment(mousePos);
+                guiEvent.Use(); // Consume the event
             }
         }
 
@@ -93,6 +95,7 @@ public class PathEditor : Editor {
             {
                 Undo.RecordObject(creator, "Delete segment");
                 Path.DeleteSegment(closestAnchorIndex);
+                guiEvent.Use(); // Consume the event to prevent default right-click behavior
             }
         }
 
@@ -144,7 +147,7 @@ public class PathEditor : Editor {
             {
                 Handles.color = (i % 3 == 0) ? creator.anchorCol : creator.controlCol;
                 float handleSize = (i % 3 == 0) ? creator.anchorDiameter : creator.controlDiameter;
-                Vector2 newPos = Handles.FreeMoveHandle(Path[i], Quaternion.identity, handleSize, Vector2.zero, Handles.CylinderHandleCap);
+                var fmh_147_66_638929356806698058 = Quaternion.identity; Vector2 newPos = Handles.FreeMoveHandle(Path[i], handleSize, Vector2.zero, Handles.CylinderHandleCap);
                 if (Path[i] != newPos)
                 {
                     Undo.RecordObject(creator, "Move point");

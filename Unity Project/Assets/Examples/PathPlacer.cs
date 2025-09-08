@@ -9,12 +9,20 @@ public class PathPlacer : MonoBehaviour {
 
 	
 	void Start () {
-        Vector2[] points = FindObjectOfType<PathCreator>().path.CalculateEvenlySpacedPoints(spacing, resolution);
-        foreach (Vector2 p in points)
+        PathCreator pathCreator = FindFirstObjectByType<PathCreator>();
+        if (pathCreator != null && pathCreator.path != null)
         {
-            GameObject g = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            g.transform.position = p;
-            g.transform.localScale = Vector3.one * spacing * .5f;
+            Vector2[] points = pathCreator.path.CalculateEvenlySpacedPoints(spacing, resolution);
+            foreach (Vector2 p in points)
+            {
+                GameObject g = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                g.transform.position = p;
+                g.transform.localScale = Vector3.one * spacing * .5f;
+            }
+        }
+        else
+        {
+            Debug.LogWarning("PathPlacer: No PathCreator found or path is null. Make sure to create a path first.");
         }
 	}
 	
