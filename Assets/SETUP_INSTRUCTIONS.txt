@@ -1,0 +1,44 @@
+LOG FILE WRITER SETUP INSTRUCTIONS
+===================================
+
+I've created a LogFileWriter script that will capture all Unity console logs and write them to a text file that you can easily copy from!
+
+SETUP STEPS:
+1. In Unity, create an empty GameObject in your scene:
+   - Right-click in the Hierarchy window
+   - Select "Create Empty"
+   - Rename it to "LogFileWriter" (optional)
+
+2. Add the LogFileWriter component to this GameObject:
+   - Select the empty GameObject you just created
+   - In the Inspector, click "Add Component"
+   - Search for "LogFileWriter" and add it
+
+3. Configure the settings (optional):
+   - Log File Name: Default is "unity_console_logs.txt"
+   - Max Log Entries: Default is 1000 (prevents file from getting too large)
+   - Include Timestamp: Adds timestamps to each log entry
+   - Include Log Type: Shows if it's a Log, Warning, or Error
+   - Clear On Start: Clears the log file when Unity starts
+
+USAGE:
+- The log file will be saved to Unity's persistent data path
+- The script will log the exact file location when it starts
+- You can right-click on the LogFileWriter component and select:
+  - "Clear Log File" to manually clear the log
+  - "Open Log Folder" to open the folder containing the log file
+
+FINDING YOUR LOG FILE:
+The log file location will be printed to the console when the script starts.
+Typical locations:
+- Windows: %userprofile%\AppData\LocalLow\[CompanyName]\[ProductName]\
+- Mac: ~/Library/Application Support/[CompanyName]/[ProductName]/
+- Linux: ~/.config/unity3d/[CompanyName]/[ProductName]/
+
+The script captures ALL console output including:
+- Debug.Log messages
+- Debug.LogWarning messages  
+- Debug.LogError messages
+- System errors and exceptions
+
+Now you can easily copy your logs from the text file instead of struggling with Unity's console!
