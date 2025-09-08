@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/Joss_loaner/Desktop/Projects/Downloaded Repos/Curve-Editor/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
