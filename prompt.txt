@@ -1,9 +1,6 @@
 Prompt:
-Great work. Now, I'm gonna be making more changes to this repo, but before i do, I want to sync it to a fork of the original project that i made on my github. My fork is at https://github.com/arghhhhh/Game-Mode-Animation-Curve-Editor.git. Please help me sync this repo with all the changes i made to GitHub. The git repo is actually one directory above this current directory. 
 
 Files:
-@Assets\PathCreator.cs
-@Assets\Examples\PathPlacer.cs
 
 Log:
 ```
