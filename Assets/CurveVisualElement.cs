@@ -283,6 +283,7 @@ public class CurveVisualElement : VisualElement
             }
             
             // Now that dragging is done, update the curve
+            // Pass information about which point was modified
             OnPathChanged?.Invoke(currentPath);
         }
     }
