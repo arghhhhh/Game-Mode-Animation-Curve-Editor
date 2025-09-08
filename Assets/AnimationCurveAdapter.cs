@@ -40,7 +40,10 @@ public static class AnimationCurveAdapter
             
             bool shouldBeFlat = Mathf.Approximately(startPos.y, endPos.y) || 
                                (Mathf.Approximately(firstKey.outTangent, 0f) && Mathf.Approximately(secondKey.inTangent, 0f)) ||
-                               (Mathf.Approximately(firstKey.outTangent, straightLineTangent) && Mathf.Approximately(secondKey.inTangent, straightLineTangent));
+                               (Mathf.Abs(firstKey.outTangent - straightLineTangent) < 0.01f && Mathf.Abs(secondKey.inTangent - straightLineTangent) < 0.01f);
+            
+            Debug.Log($"Straight line check: startPos={startPos}, endPos={endPos}, straightLineTangent={straightLineTangent}");
+            Debug.Log($"Tangents: out={firstKey.outTangent}, in={secondKey.inTangent}, shouldBeFlat={shouldBeFlat}");
             
             if (shouldBeFlat)
             {
@@ -53,11 +56,17 @@ public static class AnimationCurveAdapter
             }
             else
             {
-                // For curved lines, use tangent-based control points with improved positioning
-                Debug.Log($"Converting tangent {firstKey.outTangent} with tangentWeight {tangentWeight}");
-                control1 = CalculateControlFromTangent(startPos, firstKey.outTangent, tangentWeight, timeDelta * 0.5f);
-                Debug.Log($"Converting tangent {secondKey.inTangent} with tangentWeight {-tangentWeight}");
-                control2 = CalculateControlFromTangent(endPos, -secondKey.inTangent, tangentWeight, timeDelta * 0.5f);
+                // For curved lines, use tangent-based control points with stored distances
+                string outKey = $"out_{startPos.x}_{startPos.y}";
+                string inKey = $"in_{endPos.x}_{endPos.y}";
+                
+                float storedOutDistance = controlPointDistances.ContainsKey(outKey) ? controlPointDistances[outKey] : tangentWeight;
+                float storedInDistance = controlPointDistances.ContainsKey(inKey) ? Mathf.Abs(controlPointDistances[inKey]) : tangentWeight;
+                
+                Debug.Log($"Converting tangent {firstKey.outTangent} with stored distance {storedOutDistance}");
+                control1 = CalculateControlFromTangentWithDistance(startPos, firstKey.outTangent, storedOutDistance);
+                Debug.Log($"Converting tangent {secondKey.inTangent} with stored distance {storedInDistance}");
+                control2 = CalculateControlFromTangentWithDistance(endPos, -secondKey.inTangent, -storedInDistance);
                 
                 Debug.Log($"Creating curved controls from tangents {firstKey.outTangent}, {secondKey.inTangent}: control1={control1}, control2={control2}");
             }
@@ -90,7 +99,7 @@ public static class AnimationCurveAdapter
             
             bool shouldBeFlat = Mathf.Approximately(startPos.y, secondPos.y) || 
                                (Mathf.Approximately(firstKey.outTangent, 0f) && Mathf.Approximately(secondKey.inTangent, 0f)) ||
-                               (Mathf.Approximately(firstKey.outTangent, straightLineTangent) && Mathf.Approximately(secondKey.inTangent, straightLineTangent));
+                               (Mathf.Abs(firstKey.outTangent - straightLineTangent) < 0.01f && Mathf.Abs(secondKey.inTangent - straightLineTangent) < 0.01f);
             
             if (shouldBeFlat)
             {
@@ -136,7 +145,7 @@ public static class AnimationCurveAdapter
                 float segmentStraightTangent = (currentAnchor.y - prevAnchor.y) / (currentAnchor.x - prevAnchor.x);
                 
                 bool isSegmentFlat = Mathf.Approximately(prevKey.outTangent, 0f) && Mathf.Approximately(currentKey.inTangent, 0f) ||
-                                    (Mathf.Approximately(prevKey.outTangent, segmentStraightTangent) && Mathf.Approximately(currentKey.inTangent, segmentStraightTangent));
+                                    (Mathf.Abs(prevKey.outTangent - segmentStraightTangent) < 0.01f && Mathf.Abs(currentKey.inTangent - segmentStraightTangent) < 0.01f);
                 
                 if (isSegmentFlat)
                 {
@@ -167,12 +176,18 @@ public static class AnimationCurveAdapter
         return path;
     }
 
+    // Static storage for control point distances to maintain precision during roundtrip conversion
+    private static Dictionary<string, float> controlPointDistances = new Dictionary<string, float>();
+    
     public static AnimationCurve PathToAnimationCurve(Path path)
     {
         if (path.NumSegments == 0)
         {
             return new AnimationCurve();
         }
+        
+        // Clear previous distance data
+        controlPointDistances.Clear();
         
         List<Keyframe> keyframes = new List<Keyframe>();
         
@@ -184,8 +199,13 @@ public static class AnimationCurveAdapter
         if (path.NumPoints > 1)
         {
             Vector2 firstControl = path[1];
-            float calculatedTangent = CalculateTangentFromControl(firstAnchor, firstControl);
-            Debug.Log($"Calculated tangent for firstKey: {calculatedTangent}");
+            float distance;
+            float calculatedTangent = CalculateTangentFromControl(firstAnchor, firstControl, out distance);
+            Debug.Log($"Calculated tangent for firstKey: {calculatedTangent}, distance: {distance}");
+            
+            // Store the actual distance for later reconstruction
+            string key = $"out_{firstKey.time}_{firstKey.value}";
+            controlPointDistances[key] = distance;
             
             // Create new keyframe with tangent values to ensure they're preserved
             firstKey = new Keyframe(firstAnchor.x, firstAnchor.y, 0f, calculatedTangent);
@@ -202,7 +222,8 @@ public static class AnimationCurveAdapter
             Vector2 inControl = segmentPoints[2]; // In control point
             
             // Calculate tangents first
-            float inTangent = CalculateTangentFromControl(endAnchor, inControl);
+            float inDistance, outDistance = 0f;
+            float inTangent = CalculateTangentFromControl(endAnchor, inControl, out inDistance);
             float outTangent = 0f;
             
             // Set out tangent if there's a next segment
@@ -210,10 +231,19 @@ public static class AnimationCurveAdapter
             {
                 Vector2[] nextSegmentPoints = path.GetPointsInSegment(segmentIndex + 1);
                 Vector2 outControl = nextSegmentPoints[1]; // Out control point of next segment
-                outTangent = CalculateTangentFromControl(endAnchor, outControl);
+                outTangent = CalculateTangentFromControl(endAnchor, outControl, out outDistance);
             }
             
-            Debug.Log($"Segment {segmentIndex} keyframe tangents - in: {inTangent}, out: {outTangent}");
+            Debug.Log($"Segment {segmentIndex} keyframe tangents - in: {inTangent} (dist: {inDistance}), out: {outTangent} (dist: {outDistance})");
+            
+            // Store the actual distances for later reconstruction
+            string inKey = $"in_{endAnchor.x}_{endAnchor.y}";
+            string outKey = $"out_{endAnchor.x}_{endAnchor.y}";
+            controlPointDistances[inKey] = inDistance;
+            if (segmentIndex < path.NumSegments - 1)
+            {
+                controlPointDistances[outKey] = outDistance;
+            }
             
             // Create keyframe with tangents in constructor to ensure they're preserved
             Keyframe key = new Keyframe(endAnchor.x, endAnchor.y, inTangent, outTangent);
@@ -265,33 +295,21 @@ public static class AnimationCurveAdapter
         return CalculateTangentFromControl(anchor, control, out distance);
     }
     
+    private static Vector2 CalculateControlFromTangentWithDistance(Vector2 anchor, float tangent, float exactDistance)
+    {
+        // Use the exact stored distance to recreate the original control point position
+        Vector2 result = anchor + new Vector2(exactDistance, tangent * exactDistance);
+        Debug.Log($"  Recreated control point: {result} (exact distance: {exactDistance})");
+        return result;
+    }
+    
     private static Vector2 CalculateControlFromTangent(Vector2 anchor, float tangent, float suggestedDistance, float maxDistance = 0.5f)
     {
-        // Try to use a smarter distance calculation that balances the tangent with reasonable positioning
+        // Fallback method when no stored distance is available
         Debug.Log($"CalculateControlFromTangent: anchor={anchor}, tangent={tangent}, suggestedDistance={suggestedDistance}");
         
-        // For reasonable tangents, try to infer a better distance from the tangent itself
-        // The idea is that steeper tangents usually come from control points that are closer horizontally
-        float targetDistance;
-        
-        if (Mathf.Abs(tangent) <= 1f)
-        {
-            // For shallow tangents, use a larger distance
-            targetDistance = Mathf.Max(suggestedDistance, 0.25f);
-        }
-        else if (Mathf.Abs(tangent) <= 2f)
-        {
-            // For moderate tangents, use medium distance
-            targetDistance = suggestedDistance * 1.2f;
-        }
-        else
-        {
-            // For steep tangents, try to calculate what the original distance might have been
-            // Use a more direct approach: if we have a steep tangent, the user probably
-            // positioned the control point closer horizontally
-            targetDistance = suggestedDistance * 1.1f; // Just slightly more than suggested
-            Debug.Log($"  Steep tangent: using distance {targetDistance}");
-        }
+        // Use a more reasonable distance estimation
+        float targetDistance = suggestedDistance;
         
         // Still limit the maximum distance to keep things reasonable
         targetDistance = Mathf.Min(targetDistance, maxDistance);

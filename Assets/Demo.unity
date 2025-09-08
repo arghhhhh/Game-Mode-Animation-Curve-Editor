@@ -133,7 +133,7 @@ GameObject:
   - component: {fileID: 294910523}
   - component: {fileID: 294910527}
   m_Layer: 0
-  m_Name: GameObject
+  m_Name: Curve Editor
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -153,6 +153,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::CurveEditorDemo
   curveEditor: {fileID: 0}
   testObject: {fileID: 0}
+  comparisonObject: {fileID: 0}
   animationDuration: 2
   playAnimation: 0
 --- !u!114 &294910524
@@ -191,9 +192,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RuntimeCurveEditor
   uiDocument: {fileID: 0}
-  availablePresets:
-  - {fileID: 11400000, guid: 663b85ab11a9e1745b44ee22f1db458b, type: 2}
-  - {fileID: 11400000, guid: a7f264c5bb0eb594f8d509871b4bb4c5, type: 2}
   currentCurve:
     serializedVersion: 2
     m_Curve:

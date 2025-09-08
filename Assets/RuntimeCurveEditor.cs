@@ -5,12 +5,12 @@ using System.Collections.Generic;
 public class RuntimeCurveEditor : MonoBehaviour
 {
     [SerializeField] private UIDocument uiDocument;
-    [SerializeField] private List<AnimationCurvePreset> availablePresets = new List<AnimationCurvePreset>();
     [SerializeField] private AnimationCurve currentCurve = AnimationCurve.Linear(0, 0, 1, 1);
     
     private CurveVisualElement curveVisualElement;
     private DropdownField presetDropdown;
     private Button saveButton;
+    private Button saveAsButton;
     private Button newButton;
     private Toggle showControlsToggle;
     private FloatField rangeXField;
@@ -21,15 +21,26 @@ public class RuntimeCurveEditor : MonoBehaviour
     private Button closeEditorButton;
     private bool isPopupOpen = false;
     
+    private AnimationCurvePreset currentPreset = null;
+    private List<AnimationCurvePreset> availablePresets = new List<AnimationCurvePreset>();
+    
     public AnimationCurve CurrentCurve
     {
         get { return currentCurve; }
         private set
         {
-            currentCurve = value;
-            UpdateCurveDisplay();
-            OnCurveChanged?.Invoke(currentCurve);
+            SetCurveInternal(value, true);
         }
+    }
+    
+    private void SetCurveInternal(AnimationCurve curve, bool updateDisplay)
+    {
+        currentCurve = curve;
+        if (updateDisplay)
+        {
+            UpdateCurveDisplay();
+        }
+        OnCurveChanged?.Invoke(currentCurve);
     }
     
     public System.Action<AnimationCurve> OnCurveChanged;
@@ -49,7 +60,9 @@ public class RuntimeCurveEditor : MonoBehaviour
         
         SetupUI();
         LoadAvailablePresets();
-        UpdateCurveDisplay();
+        
+        // Ensure the initial curve is properly converted and displayed
+        SetCurveInternal(currentCurve, true);
     }
 
     private void SetupUI()
@@ -166,7 +179,7 @@ public class RuntimeCurveEditor : MonoBehaviour
         controlPanel.style.paddingRight = 10;
         
         presetDropdown = new DropdownField("Preset:", new List<string> { "None" }, 0);
-        presetDropdown.style.width = 200;
+        presetDropdown.style.width = 300; // Wider to show full names
         presetDropdown.RegisterValueChangedCallback(OnPresetSelected);
         controlPanel.Add(presetDropdown);
         
@@ -178,7 +191,13 @@ public class RuntimeCurveEditor : MonoBehaviour
         saveButton = new Button(() => SaveCurrentCurve()) { text = "Save" };
         saveButton.style.width = 60;
         saveButton.style.marginLeft = 10;
+        saveButton.style.display = DisplayStyle.None; // Hidden by default
         controlPanel.Add(saveButton);
+        
+        saveAsButton = new Button(() => SaveAsCurve()) { text = "Save As" };
+        saveAsButton.style.width = 70;
+        saveAsButton.style.marginLeft = 10;
+        controlPanel.Add(saveAsButton);
         
         showControlsToggle = new Toggle("Show Controls");
         showControlsToggle.value = true;
@@ -221,8 +240,25 @@ public class RuntimeCurveEditor : MonoBehaviour
 
     private void LoadAvailablePresets()
     {
+        // Clear and reload all presets
+        availablePresets.Clear();
         var presetNames = new List<string> { "None" };
         
+#if UNITY_EDITOR
+        // Find all AnimationCurvePreset assets in the project
+        string[] guids = UnityEditor.AssetDatabase.FindAssets("t:AnimationCurvePreset");
+        foreach (string guid in guids)
+        {
+            string path = UnityEditor.AssetDatabase.GUIDToAssetPath(guid);
+            AnimationCurvePreset preset = UnityEditor.AssetDatabase.LoadAssetAtPath<AnimationCurvePreset>(path);
+            if (preset != null)
+            {
+                availablePresets.Add(preset);
+                presetNames.Add(preset.name);
+            }
+        }
+#else
+        // In builds, use the manually assigned presets
         foreach (var preset in availablePresets)
         {
             if (preset != null)
@@ -230,31 +266,60 @@ public class RuntimeCurveEditor : MonoBehaviour
                 presetNames.Add(preset.name);
             }
         }
+#endif
         
         presetDropdown.choices = presetNames;
+        Debug.Log($"Loaded {availablePresets.Count} curve presets");
     }
 
     private void OnPresetSelected(ChangeEvent<string> evt)
     {
         if (evt.newValue == "None")
         {
+            currentPreset = null;
+            UpdateSaveButtonVisibility();
             return;
         }
         
         var selectedPreset = availablePresets.Find(p => p != null && p.name == evt.newValue);
         if (selectedPreset != null)
         {
+            currentPreset = selectedPreset;
             CurrentCurve = selectedPreset.GetCurveCopy();
+            UpdateSaveButtonVisibility();
         }
+    }
+    
+    private void UpdateSaveButtonVisibility()
+    {
+        saveButton.style.display = currentPreset != null ? DisplayStyle.Flex : DisplayStyle.None;
     }
 
     private void CreateNewCurve()
     {
+        currentPreset = null;
         CurrentCurve = AnimationCurve.Linear(0, 0, 1, 1);
         presetDropdown.value = "None";
+        UpdateSaveButtonVisibility();
     }
 
     private void SaveCurrentCurve()
+    {
+        if (currentPreset == null) return;
+        
+#if UNITY_EDITOR
+        // Save to the existing preset
+        currentPreset.SetCurve(currentCurve);
+        UnityEditor.EditorUtility.SetDirty(currentPreset);
+        UnityEditor.AssetDatabase.SaveAssets();
+        
+        Debug.Log($"Curve saved to existing preset: {currentPreset.name}");
+#else
+        Debug.Log("Saving curves at runtime requires custom implementation");
+#endif
+    }
+    
+    private void SaveAsCurve()
     {
 #if UNITY_EDITOR
         string path = UnityEditor.EditorUtility.SaveFilePanelInProject(
@@ -272,8 +337,11 @@ public class RuntimeCurveEditor : MonoBehaviour
             UnityEditor.AssetDatabase.CreateAsset(preset, path);
             UnityEditor.AssetDatabase.SaveAssets();
             
-            availablePresets.Add(preset);
+            // Set this as the current preset and reload the dropdown
+            currentPreset = preset;
             LoadAvailablePresets();
+            presetDropdown.value = preset.name;
+            UpdateSaveButtonVisibility();
             
             Debug.Log($"Curve preset saved to {path}");
         }
@@ -298,14 +366,8 @@ public class RuntimeCurveEditor : MonoBehaviour
         // Only update the curve if we're not currently dragging to avoid feedback loops
         if (curveVisualElement == null || !curveVisualElement.IsDragging)
         {
-            // TEMPORARY SOLUTION: Skip the conversion entirely to prevent control point corruption
-            // Just update the internal curve reference without triggering display update
-            Debug.Log("Skipping Path->Curve->Path conversion to prevent control point corruption");
-            currentCurve = AnimationCurveAdapter.PathToAnimationCurve(path);
-            OnCurveChanged?.Invoke(currentCurve);
-            
-            // DO NOT call UpdateCurveDisplay() here to avoid the roundtrip conversion
-            // The visual is already correct from the user's drag operation
+            // Convert path to curve and update both internal state and display
+            CurrentCurve = AnimationCurveAdapter.PathToAnimationCurve(path);
         }
     }
 
