@@ -5,6 +5,7 @@ using System.Collections.Generic;
 public class CurveVisualElement : VisualElement
 {
     private Path currentPath;
+    private AnimationCurve cachedAnimationCurve;
     private Vector2 viewportSize = new Vector2(400, 200);
     private Vector2 curveRange = new Vector2(1, 1);
     private Color curveColor = Color.white;
@@ -15,6 +16,12 @@ public class CurveVisualElement : VisualElement
     private float controlRadius = 4f;
     private bool showControlPoints = true;
     private bool showGrid = true;
+    
+    // Conversion state management
+    private bool isConverting = false;
+    private Color greyedOutColor = new Color(0.5f, 0.5f, 0.5f, 0.7f);
+    private Color greyedOutAnchorColor = new Color(0.4f, 0.6f, 0.6f, 0.5f);
+    private Color greyedOutControlColor = new Color(0.6f, 0.6f, 0.4f, 0.5f);
     
     public System.Action<Path> OnPathChanged;
     
@@ -29,8 +36,29 @@ public class CurveVisualElement : VisualElement
         set 
         { 
             currentPath = value;
-            MarkDirtyRepaint();
+            StartConversion();
         }
+    }
+    
+    public bool IsConverting
+    {
+        get { return isConverting; }
+    }
+    
+    private void StartConversion()
+    {
+        isConverting = true;
+        MarkDirtyRepaint();
+        
+        // Use Unity's main thread scheduler to perform conversion
+        schedule.Execute(() => {
+            // Perform the conversion
+            cachedAnimationCurve = AnimationCurveAdapter.PathToAnimationCurve(currentPath);
+            
+            // Mark conversion as complete
+            isConverting = false;
+            MarkDirtyRepaint();
+        });
     }
 
     public Vector2 CurveRange
@@ -123,19 +151,76 @@ public class CurveVisualElement : VisualElement
 
     private void DrawCurve(Painter2D painter2D)
     {
-        painter2D.strokeColor = curveColor;
+        // Use greyed-out color during conversion
+        painter2D.strokeColor = isConverting ? greyedOutColor : curveColor;
         painter2D.lineWidth = 2f;
         
+        if (isDragging)
+        {
+            // During dragging, use direct Bézier rendering for immediate feedback
+            DrawCurveBezier(painter2D);
+        }
+        else if (isConverting)
+        {
+            // During conversion, show Bézier version in grey
+            DrawCurveBezier(painter2D);
+        }
+        else
+        {
+            // When not dragging and not converting, use AnimationCurve evaluation for accuracy
+            DrawCurveAnimationCurve(painter2D);
+        }
+    }
+
+    private void DrawCurveAnimationCurve(Painter2D painter2D)
+    {
+        // Use cached AnimationCurve for accurate evaluation
+        AnimationCurve animCurve = cachedAnimationCurve;
+        
+        if (animCurve == null || animCurve.length < 2)
+            return;
+        
+        painter2D.BeginPath();
+        
+        // Get the time range from the AnimationCurve
+        float minTime = animCurve.keys[0].time;
+        float maxTime = animCurve.keys[animCurve.length - 1].time;
+        
+        int resolution = 50; // Higher resolution for smooth curves
+        bool firstPoint = true;
+        
+        for (int i = 0; i <= resolution; i++)
+        {
+            float t = minTime + (maxTime - minTime) * (i / (float)resolution);
+            float value = animCurve.Evaluate(t);
+            
+            // Create path point from time and evaluated value
+            Vector2 pathPoint = new Vector2(t, value);
+            Vector2 screenPoint = PathToScreen(pathPoint);
+            
+            if (firstPoint)
+            {
+                painter2D.MoveTo(screenPoint);
+                firstPoint = false;
+            }
+            else
+            {
+                painter2D.LineTo(screenPoint);
+            }
+        }
+        
+        painter2D.Stroke();
+    }
+
+    private void DrawCurveBezier(Painter2D painter2D)
+    {
+        // Original Bézier rendering for immediate feedback during dragging
         for (int segmentIndex = 0; segmentIndex < currentPath.NumSegments; segmentIndex++)
         {
             Vector2[] points = currentPath.GetPointsInSegment(segmentIndex);
             
-            Vector2 p0 = PathToScreen(points[0]);
-            Vector2 p1 = PathToScreen(points[1]);
-            Vector2 p2 = PathToScreen(points[2]);
-            Vector2 p3 = PathToScreen(points[3]);
-            
             painter2D.BeginPath();
+            Vector2 p0 = PathToScreen(points[0]);
             painter2D.MoveTo(p0);
             
             int resolution = 20;
@@ -184,11 +269,19 @@ public class CurveVisualElement : VisualElement
             Vector2 screenPos = PathToScreen(currentPath[i]);
             bool isAnchor = i % 3 == 0;
             
-            painter2D.fillColor = isAnchor ? anchorColor : controlColor;
-            
-            if (selectedPointIndex == i)
+            // Use greyed-out colors during conversion
+            if (isConverting)
             {
-                painter2D.fillColor = Color.white;
+                painter2D.fillColor = isAnchor ? greyedOutAnchorColor : greyedOutControlColor;
+            }
+            else
+            {
+                painter2D.fillColor = isAnchor ? anchorColor : controlColor;
+                
+                if (selectedPointIndex == i)
+                {
+                    painter2D.fillColor = Color.white;
+                }
             }
             
             float radius = isAnchor ? anchorRadius : controlRadius;
@@ -217,6 +310,13 @@ public class CurveVisualElement : VisualElement
 
     private void OnMouseDown(MouseDownEvent evt)
     {
+        // Block all interaction during conversion
+        if (isConverting)
+        {
+            evt.StopPropagation();
+            return;
+        }
+        
         Vector2 localMousePos = this.WorldToLocal(evt.mousePosition);
         
         selectedPointIndex = GetNearestPointIndex(localMousePos);
@@ -250,6 +350,10 @@ public class CurveVisualElement : VisualElement
 
     private void OnMouseMove(MouseMoveEvent evt)
     {
+        // Block all interaction during conversion
+        if (isConverting)
+            return;
+            
         if (isDragging && selectedPointIndex != -1)
         {
             Vector2 localMousePos = this.WorldToLocal(evt.mousePosition);
@@ -268,12 +372,19 @@ public class CurveVisualElement : VisualElement
 
     private void OnMouseUp(MouseUpEvent evt)
     {
+        // Block all interaction during conversion
+        if (isConverting)
+            return;
+            
         if (isDragging)
         {
             Debug.Log($"Drag ended for point {selectedPointIndex}, final position: {currentPath[selectedPointIndex]}");
             
             isDragging = false;
             this.ReleaseMouse();
+            
+            // Start conversion process after drag ends
+            StartConversion();
             
             // Debug all points before conversion
             Debug.Log("Points before OnPathChanged:");

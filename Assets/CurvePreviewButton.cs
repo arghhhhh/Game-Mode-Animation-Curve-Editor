@@ -27,6 +27,17 @@ public class CurvePreviewButton : MonoBehaviour
         } 
     }
     
+    // Method to update the curve from the editor (bypasses conversion issues)
+    public void UpdateFromEditor(AnimationCurve editedCurve)
+    {
+        // Store the edited curve as the new original
+        curve = new AnimationCurve(editedCurve.keys);
+        
+        // Update the preview display
+        if (curvePreviewElement != null)
+            curvePreviewElement.UpdateCurve(curve);
+    }
+    
     public string CurveName 
     { 
         get { return curveName; } 
@@ -203,24 +214,41 @@ public class CurvePreviewElement : VisualElement
         float minValue = 0f;
         float maxValue = 1f;
         
-        // Find actual curve value range to check if we need different bounds
+        // Find actual curve value range by evaluating the curve (NOT by looking at control points)
         float actualMinValue = float.MaxValue;
         float actualMaxValue = float.MinValue;
+        float minValueTime = 0f;
+        float maxValueTime = 0f;
         
-        for (int i = 0; i <= CURVE_RESOLUTION; i++)
+        // Use higher resolution for better range detection
+        int rangeResolution = CURVE_RESOLUTION * 2;
+        for (int i = 0; i <= rangeResolution; i++)
         {
-            float t = minTime + (maxTime - minTime) * (i / (float)CURVE_RESOLUTION);
+            float t = minTime + (maxTime - minTime) * (i / (float)rangeResolution);
             float value = currentCurve.Evaluate(t);
-            actualMinValue = Mathf.Min(actualMinValue, value);
-            actualMaxValue = Mathf.Max(actualMaxValue, value);
+            
+            if (value < actualMinValue)
+            {
+                actualMinValue = value;
+                minValueTime = t;
+            }
+            if (value > actualMaxValue)
+            {
+                actualMaxValue = value;
+                maxValueTime = t;
+            }
         }
         
-        // If curve goes outside 0-1 range, expand the display range
-        if (actualMinValue < 0f || actualMaxValue > 1f)
-        {
-            minValue = Mathf.Min(0f, actualMinValue - 0.1f);
-            maxValue = Mathf.Max(1f, actualMaxValue + 0.1f);
-        }
+        // Always use the actual evaluated range for accuracy
+        // This ensures the preview matches what AnimationCurve.Evaluate() returns
+        minValue = Mathf.Min(0f, actualMinValue - 0.02f);
+        maxValue = Mathf.Max(1f, actualMaxValue + 0.02f);
+        
+        Debug.Log($"Curve range detection - Actual: [{actualMinValue:F3}, {actualMaxValue:F3}], Display: [{minValue:F3}, {maxValue:F3}]");
+        Debug.Log($"Extrema positions - Min: {actualMinValue:F3} at time {minValueTime:F3}, Max: {actualMaxValue:F3} at time {maxValueTime:F3}");
+        
+        // Also log some sample evaluated points to verify
+        Debug.Log($"Sample points: Start={currentCurve.Evaluate(minTime):F3}, Mid={currentCurve.Evaluate((minTime + maxTime) * 0.5f):F3}, End={currentCurve.Evaluate(maxTime):F3}");
         
         painter.BeginPath();
         

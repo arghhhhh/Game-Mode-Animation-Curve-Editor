@@ -75,8 +75,8 @@ public class CurvePreviewTestScene : MonoBehaviour
     {
         var curve = new AnimationCurve();
         curve.AddKey(new Keyframe(0f, 0f));
-        curve.AddKey(new Keyframe(0.3f, 1.2f));
-        curve.AddKey(new Keyframe(0.6f, 0.8f));
+        curve.AddKey(new Keyframe(0.3f, 0.7f));
+        curve.AddKey(new Keyframe(0.6f, 0.4f));
         curve.AddKey(new Keyframe(1f, 1f));
         return curve;
     }

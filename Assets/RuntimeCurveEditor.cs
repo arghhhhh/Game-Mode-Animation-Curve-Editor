@@ -174,7 +174,8 @@ public class RuntimeCurveEditor : MonoBehaviour
             // When closing, apply changes back to the editing button
             if (currentEditingButton != null)
             {
-                currentEditingButton.Curve = currentCurve;
+                // Use UpdateFromEditor to apply the clean edited curve (not the converted one)
+                currentEditingButton.UpdateFromEditor(currentCurve);
                 currentEditingButton = null;
             }
         }
