@@ -64,17 +64,24 @@ public static class AnimationCurveAdapter
                 string outKey = $"out_{startPos.x}_{startPos.y}";
                 string inKey = $"in_{endPos.x}_{endPos.y}";
                 
+                Debug.Log($"Looking for distance keys: outKey='{outKey}', inKey='{inKey}'");
+                Debug.Log($"Available distance keys: {string.Join(", ", controlPointDistances.Keys)}");
+                Debug.Log($"outKey exists: {controlPointDistances.ContainsKey(outKey)}, inKey exists: {controlPointDistances.ContainsKey(inKey)}");
+                
                 if (controlPointDistances.ContainsKey(outKey) && controlPointDistances.ContainsKey(inKey))
                 {
                     // Use stored distances for precision
                     float storedOutDistance = controlPointDistances[outKey];
-                    float storedInDistance = Mathf.Abs(controlPointDistances[inKey]);
+                    float storedInDistance = controlPointDistances[inKey]; // Don't use Abs - preserve the sign
+                    
+                    Debug.Log($"Using stored distances: out={storedOutDistance}, in={storedInDistance}");
                     
                     control1 = CalculateControlFromTangentWithDistance(startPos, firstKey.outTangent, storedOutDistance);
-                    control2 = CalculateControlFromTangentWithDistance(endPos, -secondKey.inTangent, -storedInDistance);
+                    control2 = CalculateControlFromTangentWithDistance(endPos, secondKey.inTangent, storedInDistance); // Don't negate tangent or distance
                 }
                 else
                 {
+                    Debug.Log("Falling back to smart distance calculation");
                     // For external curves, use improved distance estimation based on tangent magnitude
                     control1 = CalculateControlFromTangentSmart(startPos, firstKey.outTangent, timeDelta);
                     control2 = CalculateControlFromTangentSmartIncoming(endPos, secondKey.inTangent, timeDelta);
@@ -311,7 +318,7 @@ public static class AnimationCurveAdapter
     {
         // Use the exact stored distance to recreate the original control point position
         Vector2 result = anchor + new Vector2(exactDistance, tangent * exactDistance);
-        // Debug.Log($"  Recreated control point: {result} (exact distance: {exactDistance})");
+        Debug.Log($"CalculateControlFromTangentWithDistance: anchor={anchor}, tangent={tangent}, exactDistance={exactDistance} -> result={result}");
         return result;
     }
     
