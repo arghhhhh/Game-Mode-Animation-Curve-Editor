@@ -24,6 +24,10 @@ public class RuntimeCurveEditor : MonoBehaviour
     private AnimationCurvePreset currentPreset = null;
     private List<AnimationCurvePreset> availablePresets = new List<AnimationCurvePreset>();
     
+    // Shared editor support
+    private CurvePreviewButton currentEditingButton = null;
+    public static RuntimeCurveEditor SharedInstance { get; private set; }
+    
     public AnimationCurve CurrentCurve
     {
         get { return currentCurve; }
@@ -47,6 +51,18 @@ public class RuntimeCurveEditor : MonoBehaviour
 
     void Start()
     {
+        // Set up singleton pattern for shared editor
+        if (SharedInstance == null)
+        {
+            SharedInstance = this;
+            DontDestroyOnLoad(gameObject);
+        }
+        else if (SharedInstance != this)
+        {
+            Destroy(gameObject);
+            return;
+        }
+        
         if (uiDocument == null)
         {
             uiDocument = GetComponent<UIDocument>();
@@ -61,29 +77,16 @@ public class RuntimeCurveEditor : MonoBehaviour
         SetupUI();
         LoadAvailablePresets();
         
-        // Ensure the initial curve is properly converted and displayed
-        SetCurveInternal(currentCurve, true);
+        // Start with popup closed
+        TogglePopup(false);
     }
 
     private void SetupUI()
     {
         var root = uiDocument.rootVisualElement;
         
-        // Create main UI with just the open button
-        var mainUI = new VisualElement();
-        mainUI.style.position = Position.Absolute;
-        mainUI.style.top = 10;
-        mainUI.style.right = 10; // Move to top-right instead
-        
-        openEditorButton = new Button(() => TogglePopup(true)) { text = "Open Curve Editor" };
-        openEditorButton.style.width = 150;
-        openEditorButton.style.height = 30;
-        mainUI.Add(openEditorButton);
-        
-        // Create popup window (initially hidden)
+        // Create popup window (initially hidden) - no main UI button needed
         CreatePopupWindow(root);
-        
-        root.Add(mainUI);
     }
     
     private void CreatePopupWindow(VisualElement root)
@@ -165,6 +168,15 @@ public class RuntimeCurveEditor : MonoBehaviour
         if (open)
         {
             UpdateCurveDisplay(); // Refresh display when opening
+        }
+        else
+        {
+            // When closing, apply changes back to the editing button
+            if (currentEditingButton != null)
+            {
+                currentEditingButton.Curve = currentCurve;
+                currentEditingButton = null;
+            }
         }
     }
 
@@ -391,6 +403,54 @@ public class RuntimeCurveEditor : MonoBehaviour
     public void SetCurve(AnimationCurve curve)
     {
         CurrentCurve = curve;
+    }
+    
+    // Public method for preview buttons to open the editor
+    public void EditCurveFromButton(CurvePreviewButton button)
+    {
+        Debug.Log($"EditCurveFromButton called - button: {(button != null ? button.CurveName : "null")}");
+        
+        if (button == null)
+        {
+            Debug.LogError("EditCurveFromButton: button is null");
+            return;
+        }
+        
+        Debug.Log($"Setting up editor for curve: {button.CurveName}");
+        currentEditingButton = button;
+        currentPreset = null; // Clear preset when editing from button
+        CurrentCurve = new AnimationCurve(button.Curve.keys); // Copy the curve
+        UpdateSaveButtonVisibility();
+        
+        Debug.Log("Opening popup...");
+        TogglePopup(true);
+        Debug.Log($"Popup should be open - isPopupOpen: {isPopupOpen}");
+    }
+    
+    // Static convenience method for easy access
+    public static void OpenCurveEditor(CurvePreviewButton button)
+    {
+        Debug.Log($"OpenCurveEditor called for button: {(button != null ? button.CurveName : "null")}");
+        Debug.Log($"SharedInstance exists: {SharedInstance != null}");
+        
+        if (SharedInstance != null)
+        {
+            Debug.Log("Calling EditCurveFromButton...");
+            SharedInstance.EditCurveFromButton(button);
+        }
+        else
+        {
+            Debug.LogError("No RuntimeCurveEditor instance found. Make sure there's a RuntimeCurveEditor in the scene.");
+            
+            // Try to find one in the scene as fallback
+            var editor = FindFirstObjectByType<RuntimeCurveEditor>();
+            if (editor != null)
+            {
+                Debug.Log("Found RuntimeCurveEditor in scene, using as fallback");
+                SharedInstance = editor;
+                SharedInstance.EditCurveFromButton(button);
+            }
+        }
     }
 
     public void LoadPreset(AnimationCurvePreset preset)

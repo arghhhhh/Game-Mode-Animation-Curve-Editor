@@ -132,6 +132,7 @@ GameObject:
   - component: {fileID: 294910524}
   - component: {fileID: 294910523}
   - component: {fileID: 294910527}
+  - component: {fileID: 294910528}
   m_Layer: 0
   m_Name: Curve Editor
   m_TagString: Untagged
@@ -146,7 +147,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 294910522}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: aa164f5c17b18894c89129838030c039, type: 3}
   m_Name: 
@@ -257,6 +258,21 @@ MonoBehaviour:
   includeTimestamp: 0
   includeLogType: 0
   clearOnStart: 1
+--- !u!114 &294910528
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 294910522}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ee836d9103a31f347beaf388654611cd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CurvePreviewTestScene
+  curvePreviewButtonPrefab: {fileID: 4999959565805413487, guid: 9049c58354a35d8438f88e17f75fdc9f,
+    type: 3}
+  testCurves: []
 --- !u!1 &367617632
 GameObject:
   m_ObjectHideFlags: 0
