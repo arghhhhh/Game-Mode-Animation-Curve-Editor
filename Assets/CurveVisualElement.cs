@@ -26,6 +26,9 @@ public class CurveVisualElement : VisualElement
     public System.Action<Path> OnPathChanged;
     
     private int selectedPointIndex = -1;
+    private int hoveredPointIndex = -1;
+    private bool isHoveringCurve = false;
+    private Vector2 hoveredCurvePosition = Vector2.zero;
     private bool isDragging = false;
     private Vector2 dragOffset;
     private Vector2 drawingOffset = new Vector2(100f, 100f);
@@ -100,6 +103,7 @@ public class CurveVisualElement : VisualElement
         RegisterCallback<MouseDownEvent>(OnMouseDown);
         RegisterCallback<MouseMoveEvent>(OnMouseMove);
         RegisterCallback<MouseUpEvent>(OnMouseUp);
+        RegisterCallback<MouseLeaveEvent>(OnMouseLeave);
         
         focusable = true;
         
@@ -278,16 +282,38 @@ public class CurveVisualElement : VisualElement
             {
                 painter2D.fillColor = isAnchor ? anchorColor : controlColor;
                 
+                // Highlight selected point
                 if (selectedPointIndex == i)
                 {
                     painter2D.fillColor = Color.white;
+                }
+                // Highlight hovered point
+                else if (hoveredPointIndex == i)
+                {
+                    painter2D.fillColor = isAnchor ? Color.yellow : new Color(1f, 1f, 0.5f);
                 }
             }
             
             float radius = isAnchor ? anchorRadius : controlRadius;
             
+            // Make hovered points slightly larger
+            if (hoveredPointIndex == i && !isConverting)
+            {
+                radius *= 1.3f;
+            }
+            
             painter2D.BeginPath();
             painter2D.Arc(screenPos, radius, 0, 360);
+            painter2D.Fill();
+        }
+        
+        // Draw hover indicator for curve (shift+click preview)
+        if (isHoveringCurve && !isConverting)
+        {
+            Vector2 screenPos = PathToScreen(hoveredCurvePosition);
+            painter2D.fillColor = new Color(0.5f, 0.8f, 1f, 0.8f); // Light blue
+            painter2D.BeginPath();
+            painter2D.Arc(screenPos, anchorRadius * 0.8f, 0, 360);
             painter2D.Fill();
         }
     }
@@ -319,6 +345,23 @@ public class CurveVisualElement : VisualElement
         
         Vector2 localMousePos = this.WorldToLocal(evt.mousePosition);
         
+        // Handle right-click for deletion
+        if (evt.button == 1) // Right mouse button
+        {
+            HandleRightClick(localMousePos);
+            evt.StopPropagation();
+            return;
+        }
+        
+        // Handle shift+click for adding points
+        if (evt.shiftKey && evt.button == 0) // Shift + left click
+        {
+            HandleShiftClick(localMousePos);
+            evt.StopPropagation();
+            return;
+        }
+        
+        // Normal left-click behavior
         selectedPointIndex = GetNearestPointIndex(localMousePos);
         
         Debug.Log($"Mouse click at: {localMousePos}, Found point index: {selectedPointIndex}");
@@ -354,9 +397,10 @@ public class CurveVisualElement : VisualElement
         if (isConverting)
             return;
             
+        Vector2 localMousePos = this.WorldToLocal(evt.mousePosition);
+            
         if (isDragging && selectedPointIndex != -1)
         {
-            Vector2 localMousePos = this.WorldToLocal(evt.mousePosition);
             Vector2 newPathPos = ScreenToPath(localMousePos - dragOffset);
             
             Debug.Log($"Moving point {selectedPointIndex}: oldPos={currentPath[selectedPointIndex]}, newPos={newPathPos}");
@@ -367,6 +411,11 @@ public class CurveVisualElement : VisualElement
             
             // Don't invoke OnPathChanged during dragging to avoid feedback loops
             MarkDirtyRepaint();
+        }
+        else
+        {
+            // Update hover state when not dragging
+            UpdateHoverState(localMousePos);
         }
     }
 
@@ -410,7 +459,8 @@ public class CurveVisualElement : VisualElement
             float distance = Vector2.Distance(screenPos, pointScreenPos);
             
             bool isAnchor = i % 3 == 0;
-            float threshold = isAnchor ? anchorRadius : controlRadius;
+            // Increased thresholds for better usability
+            float threshold = isAnchor ? anchorRadius * 2f : controlRadius * 2f;
             
             // For off-screen points, use a much larger threshold and also check if we're clicking near the viewport edge
             bool isOffScreen = pointScreenPos.x < -50 || pointScreenPos.x > viewportSize.x + 50 || 
@@ -419,7 +469,7 @@ public class CurveVisualElement : VisualElement
             if (isOffScreen)
             {
                 // For off-screen points, use a very large threshold and check if clicking near viewport edges
-                threshold = 50f; // Much larger threshold
+                threshold = 70f; // Increased from 50f
                 
                 // Also check if we're clicking near the edge where the off-screen point would be
                 Vector2 clampedPos = new Vector2(
@@ -438,5 +488,300 @@ public class CurveVisualElement : VisualElement
         }
         
         return nearestIndex;
+    }
+    
+    private int GetNearestPointIndexWithValidation(Vector2 screenPos)
+    {
+        int nearestIndex = -1;
+        float minDistance = float.MaxValue;
+        
+        for (int i = 0; i < currentPath.NumPoints; i++)
+        {
+            Vector2 pointScreenPos = PathToScreen(currentPath[i]);
+            float distance = Vector2.Distance(screenPos, pointScreenPos);
+            
+            bool isAnchor = i % 3 == 0;
+            // Use smaller hover thresholds than click thresholds for more precise hover
+            float hoverThreshold = isAnchor ? anchorRadius * 1.5f : controlRadius * 1.5f;
+            
+            // For off-screen points, use a smaller threshold for hover than for clicking
+            bool isOffScreen = pointScreenPos.x < -20 || pointScreenPos.x > viewportSize.x + 20 || 
+                              pointScreenPos.y < -20 || pointScreenPos.y > viewportSize.y + 20;
+            
+            if (isOffScreen)
+            {
+                // Much smaller hover threshold for off-screen points
+                hoverThreshold = 30f;
+                
+                // Check if we're near the edge where the off-screen point would be
+                Vector2 clampedPos = new Vector2(
+                    Mathf.Clamp(pointScreenPos.x, drawingOffset.x, viewportSize.x + drawingOffset.x),
+                    Mathf.Clamp(pointScreenPos.y, drawingOffset.y, viewportSize.y + drawingOffset.y)
+                );
+                float edgeDistance = Vector2.Distance(screenPos, clampedPos);
+                distance = Mathf.Min(distance, edgeDistance);
+            }
+            
+            // Additional validation: make sure we're actually reasonably close
+            if (distance < hoverThreshold && distance < minDistance)
+            {
+                // Extra check: don't hover if we're more than 50 pixels away (regardless of threshold)
+                if (distance <= 50f)
+                {
+                    minDistance = distance;
+                    nearestIndex = i;
+                }
+            }
+        }
+        
+        return nearestIndex;
+    }
+    
+    private void UpdateHoverState(Vector2 screenPos)
+    {
+        bool needsRepaint = false;
+        
+        // Check for point hover with more strict validation
+        int newHoveredPoint = GetNearestPointIndexWithValidation(screenPos);
+        if (newHoveredPoint != hoveredPointIndex)
+        {
+            hoveredPointIndex = newHoveredPoint;
+            needsRepaint = true;
+        }
+        
+        // Check for curve hover (for shift+click preview)
+        bool newHoveringCurve = false;
+        Vector2 newHoveredCurvePosition = Vector2.zero;
+        
+        if (hoveredPointIndex == -1) // Only show curve hover when not hovering a point
+        {
+            Vector2 pathPos = ScreenToPath(screenPos);
+            
+            // Use the same AnimationCurve evaluation as the visual display for accuracy
+            if (cachedAnimationCurve != null && cachedAnimationCurve.length >= 2)
+            {
+                float minTime = cachedAnimationCurve.keys[0].time;
+                float maxTime = cachedAnimationCurve.keys[cachedAnimationCurve.length - 1].time;
+                
+                // Find the closest point on the actual displayed curve
+                float closestDistance = float.MaxValue;
+                int samples = 50; // Higher resolution for better accuracy
+                
+                for (int i = 0; i <= samples; i++)
+                {
+                    float t = minTime + (maxTime - minTime) * (i / (float)samples);
+                    float value = cachedAnimationCurve.Evaluate(t);
+                    Vector2 pointOnCurve = new Vector2(t, value);
+                    
+                    float distance = Vector2.Distance(pathPos, pointOnCurve);
+                    if (distance < closestDistance)
+                    {
+                        closestDistance = distance;
+                        newHoveredCurvePosition = pointOnCurve;
+                    }
+                }
+                
+                // Show curve hover if close enough
+                float curveHoverThreshold = 0.05f; // Smaller threshold for curve
+                if (closestDistance <= curveHoverThreshold)
+                {
+                    newHoveringCurve = true;
+                }
+            }
+            else
+            {
+                // Fallback to Bézier evaluation if no cached curve (shouldn't happen in normal use)
+                Vector2 pathPos2 = ScreenToPath(screenPos);
+                
+                float closestDistance = float.MaxValue;
+                for (int segmentIndex = 0; segmentIndex < currentPath.NumSegments; segmentIndex++)
+                {
+                    Vector2[] segmentPoints = currentPath.GetPointsInSegment(segmentIndex);
+                    
+                    int samples = 20;
+                    for (int i = 0; i <= samples; i++)
+                    {
+                        float t = (float)i / samples;
+                        Vector2 pointOnCurve = Bezier.EvaluateCubic(segmentPoints[0], segmentPoints[1], segmentPoints[2], segmentPoints[3], t);
+                        
+                        float distance = Vector2.Distance(pathPos2, pointOnCurve);
+                        if (distance < closestDistance)
+                        {
+                            closestDistance = distance;
+                            newHoveredCurvePosition = pointOnCurve;
+                        }
+                    }
+                }
+                
+                float curveHoverThreshold = 0.05f;
+                if (closestDistance <= curveHoverThreshold)
+                {
+                    newHoveringCurve = true;
+                }
+            }
+        }
+        
+        // Update curve hover state
+        if (newHoveringCurve != isHoveringCurve || Vector2.Distance(newHoveredCurvePosition, hoveredCurvePosition) > 0.001f)
+        {
+            isHoveringCurve = newHoveringCurve;
+            hoveredCurvePosition = newHoveredCurvePosition;
+            needsRepaint = true;
+        }
+        
+        if (needsRepaint)
+        {
+            MarkDirtyRepaint();
+        }
+    }
+    
+    private void OnMouseLeave(MouseLeaveEvent evt)
+    {
+        // Clear all hover states when mouse leaves
+        if (hoveredPointIndex != -1 || isHoveringCurve)
+        {
+            hoveredPointIndex = -1;
+            isHoveringCurve = false;
+            MarkDirtyRepaint();
+        }
+    }
+    
+    private void HandleShiftClick(Vector2 screenPos)
+    {
+        Debug.Log($"Shift+click at: {screenPos}");
+        
+        // Convert screen position to path coordinates
+        Vector2 pathPos = ScreenToPath(screenPos);
+        Debug.Log($"Path coordinates: {pathPos}");
+        
+        Vector2 closestPoint = Vector2.zero;
+        float closestDistance = float.MaxValue;
+        int closestSegment = 0;
+        
+        // Use the same AnimationCurve evaluation as the visual display
+        if (cachedAnimationCurve != null && cachedAnimationCurve.length >= 2)
+        {
+            float minTime = cachedAnimationCurve.keys[0].time;
+            float maxTime = cachedAnimationCurve.keys[cachedAnimationCurve.length - 1].time;
+            
+            // Find the closest point on the actual displayed curve
+            int samples = 50;
+            float bestT = 0;
+            
+            for (int i = 0; i <= samples; i++)
+            {
+                float t = minTime + (maxTime - minTime) * (i / (float)samples);
+                float value = cachedAnimationCurve.Evaluate(t);
+                Vector2 pointOnCurve = new Vector2(t, value);
+                
+                float distance = Vector2.Distance(pathPos, pointOnCurve);
+                if (distance < closestDistance)
+                {
+                    closestDistance = distance;
+                    closestPoint = pointOnCurve;
+                    bestT = t;
+                }
+            }
+            
+            // Find which segment this time falls into for proper splitting
+            for (int segmentIndex = 0; segmentIndex < currentPath.NumSegments; segmentIndex++)
+            {
+                float segmentStartTime = segmentIndex == 0 ? minTime : cachedAnimationCurve.keys[segmentIndex].time;
+                float segmentEndTime = cachedAnimationCurve.keys[segmentIndex + 1].time;
+                
+                if (bestT >= segmentStartTime && bestT <= segmentEndTime)
+                {
+                    closestSegment = segmentIndex;
+                    break;
+                }
+            }
+        }
+        else
+        {
+            // Fallback to Bézier evaluation if no cached curve
+            for (int segmentIndex = 0; segmentIndex < currentPath.NumSegments; segmentIndex++)
+            {
+                Vector2[] segmentPoints = currentPath.GetPointsInSegment(segmentIndex);
+                
+                int samples = 20;
+                for (int i = 0; i <= samples; i++)
+                {
+                    float t = (float)i / samples;
+                    Vector2 pointOnCurve = Bezier.EvaluateCubic(segmentPoints[0], segmentPoints[1], segmentPoints[2], segmentPoints[3], t);
+                    
+                    float distance = Vector2.Distance(pathPos, pointOnCurve);
+                    if (distance < closestDistance)
+                    {
+                        closestDistance = distance;
+                        closestSegment = segmentIndex;
+                        closestPoint = pointOnCurve;
+                    }
+                }
+            }
+        }
+        
+        Debug.Log($"Closest point on curve: {closestPoint} in segment {closestSegment}, distance: {closestDistance}");
+        
+        // Only add point if click is reasonably close to the curve
+        float maxDistance = 0.1f; // Maximum distance in path coordinates
+        if (closestDistance <= maxDistance)
+        {
+            // Split the segment at the closest point
+            Debug.Log($"Adding new point at: {closestPoint}");
+            currentPath.SplitSegment(closestPoint, closestSegment);
+            
+            // Trigger conversion and update
+            StartConversion();
+            OnPathChanged?.Invoke(currentPath);
+            MarkDirtyRepaint();
+        }
+        else
+        {
+            Debug.Log($"Click too far from curve (distance: {closestDistance}), not adding point");
+        }
+    }
+    
+    private void HandleRightClick(Vector2 screenPos)
+    {
+        Debug.Log($"Right-click at: {screenPos}");
+        
+        // Find the nearest point (same as regular click detection)
+        int pointIndex = GetNearestPointIndex(screenPos);
+        
+        if (pointIndex != -1)
+        {
+            bool isAnchor = pointIndex % 3 == 0;
+            Debug.Log($"Right-clicked on point {pointIndex} ({(isAnchor ? "ANCHOR" : "CONTROL")})");
+            
+            if (isAnchor)
+            {
+                // Delete the segment containing this anchor
+                // pointIndex is already the correct anchor index in the points array
+                Debug.Log($"Deleting anchor at point index {pointIndex}");
+                
+                // Only delete if we have more than one segment (to prevent empty curves)
+                if (currentPath.NumSegments > 1)
+                {
+                    currentPath.DeleteSegment(pointIndex);
+                    
+                    // Trigger conversion and update
+                    StartConversion();
+                    OnPathChanged?.Invoke(currentPath);
+                    MarkDirtyRepaint();
+                }
+                else
+                {
+                    Debug.Log("Cannot delete last segment");
+                }
+            }
+            else
+            {
+                Debug.Log("Cannot delete control points directly - delete their anchor instead");
+            }
+        }
+        else
+        {
+            Debug.Log("Right-click did not hit any point");
+        }
     }
 }
